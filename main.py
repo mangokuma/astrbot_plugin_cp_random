@@ -599,10 +599,123 @@ class CpRandomPlugin(Star):
             logger.error(f"生成关系图失败: {e}")
             yield event.plain_result(f"生成关系图失败: {e}")
 
+    def _calculate_layout(self, n: int) -> List[tuple]:
+        """计算多层同心圆布局，返回 [(radius, count, angle_offset), ...]"""
+        avatar_size = 80
+        padding = 15  # 减小边距，头像更靠近边界
+        max_dim = 1024
+        # 头像中心到画布中心的最大距离
+        max_radius = max_dim / 2 - padding - avatar_size / 2
+        
+        min_gap = 8  # 弧长方向最小间距
+        arc_per_avatar = avatar_size + min_gap  # 每个头像占用的弧长
+        
+        # 尝试单层布局
+        min_radius_single = n * arc_per_avatar / (2 * 3.14159)
+        if min_radius_single <= max_radius:
+            radius = max(avatar_size * 0.6, min_radius_single)
+            return [(radius, n, 0.0)]
+        
+        # 需要多层同心圆
+        ring_spacing = 75  # 层间距（径向）
+        min_layer_radius = avatar_size * 0.55  # 最内层最小半径
+        
+        # 从外向内构建各层半径
+        radii = []
+        r = max_radius
+        while r >= min_layer_radius:
+            radii.append(r)
+            r -= ring_spacing
+        
+        if not radii:
+            radii = [max_radius]
+        
+        # 计算每层最大容量
+        capacities = [max(1, int(2 * 3.14159 * ri / arc_per_avatar)) for ri in radii]
+        total_cap = sum(capacities)
+        
+        # 如果总容量不够，尝试减小参数
+        if total_cap < n:
+            # 先尝试减小弧长间距
+            min_gap = 5
+            arc_per_avatar = avatar_size + min_gap  # 85
+            capacities = [max(1, int(2 * 3.14159 * ri / arc_per_avatar)) for ri in radii]
+            total_cap = sum(capacities)
+        
+        # 如果还不够，尝试更小的层间距来增加层数
+        if total_cap < n:
+            for rs in [65, 55, 45]:
+                radii = []
+                r = max_radius
+                while r >= min_layer_radius:
+                    radii.append(r)
+                    r -= rs
+                if not radii:
+                    radii = [max_radius]
+                capacities = [max(1, int(2 * 3.14159 * ri / arc_per_avatar)) for ri in radii]
+                total_cap = sum(capacities)
+                if total_cap >= n:
+                    ring_spacing = rs
+                    break
+        
+        # 确定实际需要多少层
+        num_layers = 0
+        cumsum = 0
+        for cap in capacities:
+            cumsum += cap
+            num_layers += 1
+            if cumsum >= n:
+                break
+        
+        radii = radii[:num_layers]
+        capacities = capacities[:num_layers]
+        
+        # 按周长比例分配人数到各层
+        circumferences = [2 * 3.14159 * ri for ri in radii]
+        total_circumference = sum(circumferences)
+        
+        counts = []
+        remaining = n
+        for i in range(num_layers):
+            if i == num_layers - 1:
+                # 最后一层放剩余所有人
+                c = min(remaining, capacities[i])
+            else:
+                # 按周长比例分配
+                c = max(1, int(n * circumferences[i] / total_circumference))
+                c = min(c, capacities[i])
+                c = min(c, remaining)
+            counts.append(c)
+            remaining -= c
+        
+        # 处理剩余人数（从外层开始补）
+        while remaining > 0:
+            placed = False
+            for i in range(num_layers):
+                if counts[i] < capacities[i] and remaining > 0:
+                    counts[i] += 1
+                    remaining -= 1
+                    placed = True
+            if not placed:
+                # 所有层都满了，强制放到最外层
+                counts[0] += remaining
+                remaining = 0
+        
+        # 构建结果，每层角度偏移交错
+        result = []
+        for i in range(num_layers):
+            if counts[i] > 0:
+                # 角度偏移：相邻层错开半个头像位置，避免径向对齐
+                offset = (i * 3.14159 / max(num_layers, 2)) % (2 * 3.14159)
+                result.append((radii[i], counts[i], offset))
+        
+        logger.info(f"关系图布局: 总人数{n}, 层数{len(result)}, 各层{[(int(r), c) for r, c, _ in result]}")
+        return result
+
     async def _generate_relationship_graph(
         self, group_id: str, husbands: Dict, wives: Dict, members: List[Dict]
     ) -> Optional[str]:
-        """生成关系图图片"""
+        """生成关系图图片（支持多层同心圆布局）"""
         # 收集所有参与关系的用户
         involved_users = set()
         relations = []  # [(from_id, to_id, type)] type: 'husband' or 'wife'
@@ -632,24 +745,12 @@ class CpRandomPlugin(Star):
                     "display_name": f"用户{user_id}",
                 }
         
-        # 图片尺寸和布局参数
+        # 固定画布 1024×1024
         avatar_size = 80
-        padding = 40
-        max_dimension = 1024
-        
-        # 计算布局：将节点均匀分布在圆形上
-        n = len(involved_users)
-        radius = max(130, n * 25)
-        
-        canvas_width = 2 * radius + 2 * padding + 120
-        canvas_height = 2 * radius + 2 * padding + 80
-        
-        # 限制最大分辨率 1024×1024
-        if canvas_width > max_dimension or canvas_height > max_dimension:
-            max_radius = (max_dimension - 2 * padding - 120) // 2
-            radius = max(130, min(radius, max_radius))
-            canvas_width = min(2 * radius + 2 * padding + 120, max_dimension)
-            canvas_height = min(2 * radius + 2 * padding + 80, max_dimension)
+        canvas_width = 1024
+        canvas_height = 1024
+        center_x = canvas_width // 2
+        center_y = canvas_height // 2 - 30  # 稍微上移，给底部图例留空间
         
         # 创建画布
         img = Image.new("RGB", (canvas_width, canvas_height), (245, 248, 250))
@@ -659,9 +760,7 @@ class CpRandomPlugin(Star):
         font = None
         has_chinese_font = False
         try:
-            # 按平台尝试加载中文字体
             font_paths = [
-                # Linux 中文字体
                 "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
                 "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
                 "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
@@ -669,7 +768,6 @@ class CpRandomPlugin(Star):
                 "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
                 "/usr/share/fonts/truetype/arphic/uming.ttc",
                 "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-                # Windows 中文字体
                 "C:/Windows/Fonts/msyh.ttc",
                 "C:/Windows/Fonts/simhei.ttf",
                 "C:/Windows/Fonts/simsun.ttc",
@@ -688,21 +786,32 @@ class CpRandomPlugin(Star):
             font = ImageFont.load_default()
             logger.warning("未找到中文字体，图片中的中文将显示为方框。建议在服务器安装中文字体（如 apt install fonts-wqy-zenhei）")
         
-        # 计算节点位置（圆形布局）
-        center_x = canvas_width // 2
-        center_y = canvas_height // 2 - 20
+        # 计算多层同心圆布局
+        n = len(involved_users)
+        layout = self._calculate_layout(n)  # [(radius, count, angle_offset), ...]
         
+        # 按层分配用户（从内层到外层）
         user_list = list(involved_users)
-        positions = {}
-        for i, user_id in enumerate(user_list):
-            angle = 2 * 3.1415926 * i / n - 3.1415926 / 2
-            x = center_x + radius * 0.7 * __import__('math').cos(angle)
-            y = center_y + radius * 0.7 * __import__('math').sin(angle)
-            positions[user_id] = (x, y)
+        positions = {}  # {user_id: (x, y)}
+        user_idx = 0
         
-        # 先下载并绘制头像（头像在底层）
+        # 内层先分配，外层后分配（绘制时外层覆盖内层）
+        for radius, count, offset in reversed(layout):
+            for j in range(count):
+                if user_idx >= len(user_list):
+                    break
+                user_id = user_list[user_idx]
+                angle = offset + 2 * 3.1415926 * j / count - 3.1415926 / 2
+                x = center_x + radius * __import__('math').cos(angle)
+                y = center_y + radius * __import__('math').sin(angle)
+                positions[user_id] = (x, y)
+                user_idx += 1
+        
+        # 下载并绘制头像（从内层到外层，外层头像会覆盖内层）
         async with aiohttp.ClientSession() as session:
             for user_id in user_list:
+                if user_id not in positions:
+                    continue
                 x, y = positions[user_id]
                 
                 # 尝试下载头像
@@ -738,13 +847,11 @@ class CpRandomPlugin(Star):
                 # 绘制昵称（只有找到中文字体时才显示）
                 if has_chinese_font:
                     name = user_info.get(user_id, {}).get("display_name", f"用户{user_id}")
-                    # 计算文字宽度并居中
                     bbox = draw.textbbox((0, 0), name, font=font)
                     text_width = bbox[2] - bbox[0] if bbox else 0
                     text_x = int(x - text_width / 2)
                     text_y = int(y + avatar_size / 2 + 5)
                     
-                    # 绘制文字背景（白色半透明）
                     if text_width > 0:
                         draw.rectangle(
                             [text_x - 2, text_y - 1, text_x + text_width + 2, text_y + 18],
@@ -752,7 +859,7 @@ class CpRandomPlugin(Star):
                         )
                     draw.text((text_x, text_y), name, fill=(30, 30, 30), font=font)
         
-        # 再绘制箭头（关系线在头像之上，不会被挡住）
+        # 绘制箭头（关系线在所有头像之上）
         for from_id, to_id, rel_type in relations:
             if from_id not in positions or to_id not in positions:
                 continue
@@ -791,16 +898,17 @@ class CpRandomPlugin(Star):
             draw.polygon([(end_x, end_y), (ax1, ay1), (ax2, ay2)], fill=color)
         
         # 绘制图例
-        legend_y = canvas_height - 35
+        legend_padding = 20
+        legend_y = canvas_height - 40
         # 红色箭头 = 老婆关系
-        draw.line([(padding, legend_y), (padding + 30, legend_y)], fill=(220, 50, 50), width=3)
-        draw.polygon([(padding + 30, legend_y), (padding + 22, legend_y - 6), (padding + 22, legend_y + 6)], fill=(220, 50, 50))
-        draw.text((padding + 40, legend_y - 8), "老婆关系", fill=(220, 50, 50), font=font)
+        draw.line([(legend_padding, legend_y), (legend_padding + 30, legend_y)], fill=(220, 50, 50), width=3)
+        draw.polygon([(legend_padding + 30, legend_y), (legend_padding + 22, legend_y - 6), (legend_padding + 22, legend_y + 6)], fill=(220, 50, 50))
+        draw.text((legend_padding + 40, legend_y - 8), "老婆关系", fill=(220, 50, 50), font=font)
         
         # 蓝色箭头 = 老公关系
-        draw.line([(padding + 130, legend_y), (padding + 160, legend_y)], fill=(50, 100, 220), width=3)
-        draw.polygon([(padding + 160, legend_y), (padding + 152, legend_y - 6), (padding + 152, legend_y + 6)], fill=(50, 100, 220))
-        draw.text((padding + 170, legend_y - 8), "老公关系", fill=(50, 100, 220), font=font)
+        draw.line([(legend_padding + 130, legend_y), (legend_padding + 160, legend_y)], fill=(50, 100, 220), width=3)
+        draw.polygon([(legend_padding + 160, legend_y), (legend_padding + 152, legend_y - 6), (legend_padding + 152, legend_y + 6)], fill=(50, 100, 220))
+        draw.text((legend_padding + 170, legend_y - 8), "老公关系", fill=(50, 100, 220), font=font)
         
         # 保存图片
         output_path = os.path.join(os.path.abspath(self.data_dir), f"graph_{group_id}.png")
