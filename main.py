@@ -37,6 +37,35 @@ class CpRandomPlugin(Star):
         asyncio.create_task(self._daily_reset_task())
         logger.info("群友 CP 随机抽取插件已加载")
 
+    def _is_admin(self, event: AstrMessageEvent) -> bool:
+        """检查用户是否为群主或管理员，尝试多种路径获取 role"""
+        role = None
+        msg_obj = getattr(event, 'message_obj', None)
+        if msg_obj is not None:
+            sender = getattr(msg_obj, 'sender', None)
+            if sender is not None:
+                if isinstance(sender, dict):
+                    role = sender.get('role')
+                else:
+                    role = getattr(sender, 'role', None)
+            # 尝试 raw_message 路径
+            if role is None:
+                raw = getattr(msg_obj, 'raw_message', None)
+                if isinstance(raw, dict):
+                    s = raw.get('sender', {})
+                    if isinstance(s, dict):
+                        role = s.get('role')
+        # 备用路径
+        if role is None:
+            platform_msg = getattr(event, 'platform_message', None)
+            if platform_msg is not None:
+                sender = getattr(platform_msg, 'sender', None)
+                if isinstance(sender, dict):
+                    role = sender.get('role')
+                elif sender is not None:
+                    role = getattr(sender, 'role', None)
+        return role in ('owner', 'admin')
+
     def _load_data(self) -> Dict[str, Any]:
         """加载持久化数据"""
         if os.path.exists(self.data_file):
@@ -454,9 +483,7 @@ class CpRandomPlugin(Star):
             return
         
         # 检查管理员权限
-        sender = getattr(event.message_obj, 'sender', None)
-        role = getattr(sender, 'role', 'member') if sender else 'member'
-        if role not in ('owner', 'admin'):
+        if not self._is_admin(event):
             yield event.plain_result("只有群主或管理员才能使用此指令~")
             return
         
@@ -482,9 +509,7 @@ class CpRandomPlugin(Star):
             return
         
         # 检查管理员权限
-        sender = getattr(event.message_obj, 'sender', None)
-        role = getattr(sender, 'role', 'member') if sender else 'member'
-        if role not in ('owner', 'admin'):
+        if not self._is_admin(event):
             yield event.plain_result("只有群主或管理员才能使用此指令~")
             return
         
@@ -508,9 +533,7 @@ class CpRandomPlugin(Star):
             return
         
         # 检查管理员权限
-        sender = getattr(event.message_obj, 'sender', None)
-        role = getattr(sender, 'role', 'member') if sender else 'member'
-        if role not in ('owner', 'admin'):
+        if not self._is_admin(event):
             yield event.plain_result("只有群主或管理员才能使用此指令~")
             return
         
@@ -611,15 +634,22 @@ class CpRandomPlugin(Star):
         
         # 图片尺寸和布局参数
         avatar_size = 80
-        padding = 60
-        node_spacing = 200
-        row_height = 180
+        padding = 40
+        max_dimension = 1024
         
         # 计算布局：将节点均匀分布在圆形上
         n = len(involved_users)
-        radius = max(200, n * 50)
-        canvas_width = 2 * radius + 2 * padding + 200
-        canvas_height = 2 * radius + 2 * padding + 100
+        radius = max(130, n * 25)
+        
+        canvas_width = 2 * radius + 2 * padding + 120
+        canvas_height = 2 * radius + 2 * padding + 80
+        
+        # 限制最大分辨率 1024×1024
+        if canvas_width > max_dimension or canvas_height > max_dimension:
+            max_radius = (max_dimension - 2 * padding - 120) // 2
+            radius = max(130, min(radius, max_radius))
+            canvas_width = min(2 * radius + 2 * padding + 120, max_dimension)
+            canvas_height = min(2 * radius + 2 * padding + 80, max_dimension)
         
         # 创建画布
         img = Image.new("RGB", (canvas_width, canvas_height), (245, 248, 250))
@@ -761,7 +791,7 @@ class CpRandomPlugin(Star):
             draw.polygon([(end_x, end_y), (ax1, ay1), (ax2, ay2)], fill=color)
         
         # 绘制图例
-        legend_y = canvas_height - 50
+        legend_y = canvas_height - 35
         # 红色箭头 = 老婆关系
         draw.line([(padding, legend_y), (padding + 30, legend_y)], fill=(220, 50, 50), width=3)
         draw.polygon([(padding + 30, legend_y), (padding + 22, legend_y - 6), (padding + 22, legend_y + 6)], fill=(220, 50, 50))
