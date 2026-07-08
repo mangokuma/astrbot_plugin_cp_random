@@ -551,13 +551,30 @@ class CpRandomPlugin(Star):
         
         # 生成关系图
         try:
-            image_path = await self._generate_relationship_graph(
+            image_path, has_font = await self._generate_relationship_graph(
                 group_id, husbands, wives, members
             )
             if image_path and os.path.exists(image_path):
+                # 构建文本说明
+                text_lines = ["群友 CP 关系图："]
+                if not has_font:
+                    text_lines.append("⚠️ 服务器缺少中文字体，图片中昵称显示为方框，请对照下方列表查看：")
+                    text_lines.append("")
+                    for user_id in set(list(husbands.keys()) + list(wives.keys())):
+                        info = self._get_member_info(members, user_id)
+                        name = info["display_name"] if info else f"用户{user_id}"
+                        if user_id in husbands:
+                            target_info = self._get_member_info(members, husbands[user_id])
+                            target_name = target_info["display_name"] if target_info else f"用户{husbands[user_id]}"
+                            text_lines.append(f"📘 {name} → 老公：{target_name}")
+                        if user_id in wives:
+                            target_info = self._get_member_info(members, wives[user_id])
+                            target_name = target_info["display_name"] if target_info else f"用户{wives[user_id]}"
+                            text_lines.append(f"📕 {name} → 老婆：{target_name}")
+                
                 result = event.make_result()
                 result.chain = [
-                    Comp.Plain("群友 CP 关系图："),
+                    Comp.Plain("\n".join(text_lines)),
                     Comp.Image(file=image_path),
                 ]
                 yield result
@@ -569,8 +586,8 @@ class CpRandomPlugin(Star):
 
     async def _generate_relationship_graph(
         self, group_id: str, husbands: Dict, wives: Dict, members: List[Dict]
-    ) -> Optional[str]:
-        """生成关系图图片"""
+    ):
+        """生成关系图图片，返回 (图片路径, 是否有中文字体)"""
         # 收集所有参与关系的用户
         involved_users = set()
         relations = []  # [(from_id, to_id, type)] type: 'husband' or 'wife'
@@ -586,7 +603,7 @@ class CpRandomPlugin(Star):
             relations.append((user_id, target_id, "wife"))
         
         if not involved_users:
-            return None
+            return None, False
         
         # 构建用户信息映射
         user_info = {}
@@ -617,22 +634,37 @@ class CpRandomPlugin(Star):
         draw = ImageDraw.Draw(img)
         
         # 尝试加载字体
+        font = None
+        has_chinese_font = False
         try:
-            # Windows 字体路径
+            # 按平台尝试加载中文字体
             font_paths = [
+                # Linux 中文字体
+                "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+                "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+                "/usr/share/fonts/truetype/arphic/uming.ttc",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                # Windows 中文字体
                 "C:/Windows/Fonts/msyh.ttc",
                 "C:/Windows/Fonts/simhei.ttf",
                 "C:/Windows/Fonts/simsun.ttc",
+                "C:/Windows/Fonts/msyhbd.ttc",
             ]
-            font = None
             for fp in font_paths:
                 if os.path.exists(fp):
                     font = ImageFont.truetype(fp, 16)
+                    has_chinese_font = True
+                    logger.info(f"加载字体: {fp}")
                     break
-            if font is None:
-                font = ImageFont.load_default()
-        except Exception:
+        except Exception as e:
+            logger.warning(f"加载字体失败: {e}")
+        
+        if font is None:
             font = ImageFont.load_default()
+            logger.warning("未找到中文字体，图片中的中文将显示为方框。建议在服务器安装中文字体（如 apt install fonts-wqy-zenhei）")
         
         # 计算节点位置（圆形布局）
         center_x = canvas_width // 2
@@ -750,7 +782,7 @@ class CpRandomPlugin(Star):
         # 保存图片
         output_path = os.path.join(os.path.abspath(self.data_dir), f"graph_{group_id}.png")
         img.save(output_path, "PNG")
-        return output_path
+        return output_path, has_chinese_font
 
     async def terminate(self):
         """插件卸载时调用"""
