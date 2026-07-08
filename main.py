@@ -432,6 +432,13 @@ class CpRandomPlugin(Star):
             yield event.plain_result("此指令仅在群聊中可用")
             return
         
+        # 检查管理员权限
+        sender = getattr(event.message_obj, 'sender', None)
+        role = getattr(sender, 'role', 'member') if sender else 'member'
+        if role not in ('owner', 'admin'):
+            yield event.plain_result("只有群主或管理员才能使用此指令~")
+            return
+        
         mode = mode.lower().strip()
         if mode not in ("bind", "random"):
             yield event.plain_result("模式只能是 bind（绑定模式）或 random（非绑定模式）")
@@ -453,6 +460,13 @@ class CpRandomPlugin(Star):
             yield event.plain_result("此指令仅在群聊中可用")
             return
         
+        # 检查管理员权限
+        sender = getattr(event.message_obj, 'sender', None)
+        role = getattr(sender, 'role', 'member') if sender else 'member'
+        if role not in ('owner', 'admin'):
+            yield event.plain_result("只有群主或管理员才能使用此指令~")
+            return
+        
         if not 1 <= count <= 10:
             yield event.plain_result("更换次数必须在 1-10 之间")
             return
@@ -470,6 +484,13 @@ class CpRandomPlugin(Star):
         group_id = event.get_group_id()
         if not group_id:
             yield event.plain_result("此指令仅在群聊中可用")
+            return
+        
+        # 检查管理员权限
+        sender = getattr(event.message_obj, 'sender', None)
+        role = getattr(sender, 'role', 'member') if sender else 'member'
+        if role not in ('owner', 'admin'):
+            yield event.plain_result("只有群主或管理员才能使用此指令~")
             return
         
         async with self.lock:
