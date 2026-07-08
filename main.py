@@ -551,30 +551,13 @@ class CpRandomPlugin(Star):
         
         # 生成关系图
         try:
-            image_path, has_font = await self._generate_relationship_graph(
+            image_path = await self._generate_relationship_graph(
                 group_id, husbands, wives, members
             )
             if image_path and os.path.exists(image_path):
-                # 构建文本说明
-                text_lines = ["群友 CP 关系图："]
-                if not has_font:
-                    text_lines.append("⚠️ 服务器缺少中文字体，图片中昵称显示为方框，请对照下方列表查看：")
-                    text_lines.append("")
-                    for user_id in set(list(husbands.keys()) + list(wives.keys())):
-                        info = self._get_member_info(members, user_id)
-                        name = info["display_name"] if info else f"用户{user_id}"
-                        if user_id in husbands:
-                            target_info = self._get_member_info(members, husbands[user_id])
-                            target_name = target_info["display_name"] if target_info else f"用户{husbands[user_id]}"
-                            text_lines.append(f"📘 {name} → 老公：{target_name}")
-                        if user_id in wives:
-                            target_info = self._get_member_info(members, wives[user_id])
-                            target_name = target_info["display_name"] if target_info else f"用户{wives[user_id]}"
-                            text_lines.append(f"📕 {name} → 老婆：{target_name}")
-                
                 result = event.make_result()
                 result.chain = [
-                    Comp.Plain("\n".join(text_lines)),
+                    Comp.Plain("群友 CP 关系图："),
                     Comp.Image(file=image_path),
                 ]
                 yield result
@@ -586,8 +569,8 @@ class CpRandomPlugin(Star):
 
     async def _generate_relationship_graph(
         self, group_id: str, husbands: Dict, wives: Dict, members: List[Dict]
-    ):
-        """生成关系图图片，返回 (图片路径, 是否有中文字体)"""
+    ) -> Optional[str]:
+        """生成关系图图片"""
         # 收集所有参与关系的用户
         involved_users = set()
         relations = []  # [(from_id, to_id, type)] type: 'husband' or 'wife'
@@ -603,7 +586,7 @@ class CpRandomPlugin(Star):
             relations.append((user_id, target_id, "wife"))
         
         if not involved_users:
-            return None, False
+            return None
         
         # 构建用户信息映射
         user_info = {}
@@ -678,7 +661,59 @@ class CpRandomPlugin(Star):
             y = center_y + radius * 0.7 * __import__('math').sin(angle)
             positions[user_id] = (x, y)
         
-        # 绘制箭头（关系线）
+        # 先下载并绘制头像（头像在底层）
+        async with aiohttp.ClientSession() as session:
+            for user_id in user_list:
+                x, y = positions[user_id]
+                
+                # 尝试下载头像
+                avatar_url = self._get_qq_avatar_url(user_id)
+                try:
+                    async with session.get(avatar_url, timeout=5) as resp:
+                        if resp.status == 200:
+                            avatar_data = await resp.read()
+                            avatar = Image.open(BytesIO(avatar_data))
+                        else:
+                            avatar = None
+                except Exception:
+                    avatar = None
+                
+                # 如果下载失败，使用默认头像
+                if avatar is None:
+                    avatar = Image.new("RGB", (avatar_size, avatar_size), (200, 200, 200))
+                    draw_avatar = ImageDraw.Draw(avatar)
+                    draw_avatar.ellipse([0, 0, avatar_size-1, avatar_size-1], fill=(150, 150, 150))
+                else:
+                    avatar = avatar.resize((avatar_size, avatar_size), Image.LANCZOS)
+                    # 裁剪为圆形
+                    mask = Image.new("L", (avatar_size, avatar_size), 0)
+                    draw_mask = ImageDraw.Draw(mask)
+                    draw_mask.ellipse([0, 0, avatar_size-1, avatar_size-1], fill=255)
+                    avatar = Image.composite(avatar, Image.new("RGB", (avatar_size, avatar_size), (245, 248, 250)), mask)
+                
+                # 绘制头像
+                x1 = int(x - avatar_size / 2)
+                y1 = int(y - avatar_size / 2)
+                img.paste(avatar, (x1, y1))
+                
+                # 绘制昵称（只有找到中文字体时才显示）
+                if has_chinese_font:
+                    name = user_info.get(user_id, {}).get("display_name", f"用户{user_id}")
+                    # 计算文字宽度并居中
+                    bbox = draw.textbbox((0, 0), name, font=font)
+                    text_width = bbox[2] - bbox[0] if bbox else 0
+                    text_x = int(x - text_width / 2)
+                    text_y = int(y + avatar_size / 2 + 5)
+                    
+                    # 绘制文字背景（白色半透明）
+                    if text_width > 0:
+                        draw.rectangle(
+                            [text_x - 2, text_y - 1, text_x + text_width + 2, text_y + 18],
+                            fill=(255, 255, 255, 180)
+                        )
+                    draw.text((text_x, text_y), name, fill=(30, 30, 30), font=font)
+        
+        # 再绘制箭头（关系线在头像之上，不会被挡住）
         for from_id, to_id, rel_type in relations:
             if from_id not in positions or to_id not in positions:
                 continue
@@ -716,57 +751,6 @@ class CpRandomPlugin(Star):
             
             draw.polygon([(end_x, end_y), (ax1, ay1), (ax2, ay2)], fill=color)
         
-        # 下载并绘制头像
-        async with aiohttp.ClientSession() as session:
-            for user_id in user_list:
-                x, y = positions[user_id]
-                
-                # 尝试下载头像
-                avatar_url = self._get_qq_avatar_url(user_id)
-                try:
-                    async with session.get(avatar_url, timeout=5) as resp:
-                        if resp.status == 200:
-                            avatar_data = await resp.read()
-                            avatar = Image.open(BytesIO(avatar_data))
-                        else:
-                            avatar = None
-                except Exception:
-                    avatar = None
-                
-                # 如果下载失败，使用默认头像
-                if avatar is None:
-                    avatar = Image.new("RGB", (avatar_size, avatar_size), (200, 200, 200))
-                    draw_avatar = ImageDraw.Draw(avatar)
-                    draw_avatar.ellipse([0, 0, avatar_size-1, avatar_size-1], fill=(150, 150, 150))
-                else:
-                    avatar = avatar.resize((avatar_size, avatar_size), Image.LANCZOS)
-                    # 裁剪为圆形
-                    mask = Image.new("L", (avatar_size, avatar_size), 0)
-                    draw_mask = ImageDraw.Draw(mask)
-                    draw_mask.ellipse([0, 0, avatar_size-1, avatar_size-1], fill=255)
-                    avatar = Image.composite(avatar, Image.new("RGB", (avatar_size, avatar_size), (245, 248, 250)), mask)
-                
-                # 绘制头像
-                x1 = int(x - avatar_size / 2)
-                y1 = int(y - avatar_size / 2)
-                img.paste(avatar, (x1, y1))
-                
-                # 绘制昵称
-                name = user_info.get(user_id, {}).get("display_name", f"用户{user_id}")
-                # 计算文字宽度并居中
-                bbox = draw.textbbox((0, 0), name, font=font)
-                text_width = bbox[2] - bbox[0] if bbox else 0
-                text_x = int(x - text_width / 2)
-                text_y = int(y + avatar_size / 2 + 5)
-                
-                # 绘制文字背景（白色半透明）
-                if text_width > 0:
-                    draw.rectangle(
-                        [text_x - 2, text_y - 1, text_x + text_width + 2, text_y + 18],
-                        fill=(255, 255, 255, 180)
-                    )
-                draw.text((text_x, text_y), name, fill=(30, 30, 30), font=font)
-        
         # 绘制图例
         legend_y = canvas_height - 50
         # 红色箭头 = 老婆关系
@@ -782,7 +766,7 @@ class CpRandomPlugin(Star):
         # 保存图片
         output_path = os.path.join(os.path.abspath(self.data_dir), f"graph_{group_id}.png")
         img.save(output_path, "PNG")
-        return output_path, has_chinese_font
+        return output_path
 
     async def terminate(self):
         """插件卸载时调用"""
