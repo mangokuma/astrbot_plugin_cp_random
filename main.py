@@ -191,10 +191,12 @@ class CpRandomPlugin(Star):
                 target_info = self._get_member_info(members, target_id)
                 if target_info:
                     display_name = target_info["display_name"]
-                    yield event.make_result().message([
+                    result = event.make_result()
+                    result.chain = [
                         Comp.Plain(f"你今天已经有老公啦！\n你的老公是 {display_name}（{target_id}）~"),
                         Comp.Image(file=self._get_qq_avatar_url(target_id))
-                    ])
+                    ]
+                    yield result
                 else:
                     yield event.plain_result(f"你今天已经有老公啦！老公QQ: {target_id}")
                 return
@@ -231,10 +233,12 @@ class CpRandomPlugin(Star):
         target_info = self._get_member_info(members, target_id)
         display_name = target_info["display_name"] if target_info else f"用户{target_id}"
         
-        yield event.make_result().message([
+        result = event.make_result()
+        result.chain = [
             Comp.Plain(f"恭喜 {event.get_sender_name()}，你的老公是 {display_name}（{target_id}）~"),
             Comp.Image(file=self._get_qq_avatar_url(target_id))
-        ])
+        ]
+        yield result
 
     @filter.command("随机老婆")
     async def random_wife(self, event: AstrMessageEvent):
@@ -261,10 +265,12 @@ class CpRandomPlugin(Star):
                 target_info = self._get_member_info(members, target_id)
                 if target_info:
                     display_name = target_info["display_name"]
-                    yield event.make_result().message([
+                    result = event.make_result()
+                    result.chain = [
                         Comp.Plain(f"你今天已经有老婆啦！\n你的老婆是 {display_name}（{target_id}）~"),
                         Comp.Image(file=self._get_qq_avatar_url(target_id))
-                    ])
+                    ]
+                    yield result
                 else:
                     yield event.plain_result(f"你今天已经有老婆啦！老婆QQ: {target_id}")
                 return
@@ -299,10 +305,12 @@ class CpRandomPlugin(Star):
         target_info = self._get_member_info(members, target_id)
         display_name = target_info["display_name"] if target_info else f"用户{target_id}"
         
-        yield event.make_result().message([
+        result = event.make_result()
+        result.chain = [
             Comp.Plain(f"恭喜 {event.get_sender_name()}，你的老婆是 {display_name}（{target_id}）~"),
             Comp.Image(file=self._get_qq_avatar_url(target_id))
-        ])
+        ]
+        yield result
 
     @filter.command("换老公")
     async def swap_husband(self, event: AstrMessageEvent):
@@ -356,10 +364,12 @@ class CpRandomPlugin(Star):
         target_info = self._get_member_info(members, target_id)
         display_name = target_info["display_name"] if target_info else f"用户{target_id}"
         
-        yield event.make_result().message([
+        result = event.make_result()
+        result.chain = [
             Comp.Plain(f"换老公成功！\n恭喜 {event.get_sender_name()}，你的新老公是 {display_name}（{target_id}）~\n（剩余更换次数：{remaining - 1}）"),
             Comp.Image(file=self._get_qq_avatar_url(target_id))
-        ])
+        ]
+        yield result
 
     @filter.command("换老婆")
     async def swap_wife(self, event: AstrMessageEvent):
@@ -412,10 +422,12 @@ class CpRandomPlugin(Star):
         target_info = self._get_member_info(members, target_id)
         display_name = target_info["display_name"] if target_info else f"用户{target_id}"
         
-        yield event.make_result().message([
+        result = event.make_result()
+        result.chain = [
             Comp.Plain(f"换老婆成功！\n恭喜 {event.get_sender_name()}，你的新老婆是 {display_name}（{target_id}）~\n（剩余更换次数：{remaining - 1}）"),
             Comp.Image(file=self._get_qq_avatar_url(target_id))
-        ])
+        ]
+        yield result
 
     # ========== 配置指令 ==========
 
@@ -543,10 +555,12 @@ class CpRandomPlugin(Star):
                 group_id, husbands, wives, members
             )
             if image_path and os.path.exists(image_path):
-                yield event.make_result().message([
+                result = event.make_result()
+                result.chain = [
                     Comp.Plain("群友 CP 关系图："),
                     Comp.Image(file=f"file:///{image_path}"),
-                ])
+                ]
+                yield result
             else:
                 yield event.plain_result("生成关系图失败")
         except Exception as e:
