@@ -1,3 +1,5 @@
+import glob
+
 import json
 import os
 import random
@@ -93,7 +95,14 @@ class CpRandomPlugin(Star):
             # 重置所有群数据
             for group_id in list(self.data["groups"].keys()):
                 self._check_and_reset(group_id)
-            logger.info("所有群数据已执行每日重置")
+            # 清理关系图缓存
+            try:
+                for f in glob.glob(os.path.join(self.data_dir, "graph_*.png")):
+                    os.remove(f)
+                    logger.info(f"已清理关系图缓存: {f}")
+            except Exception as e:
+                logger.warning(f"清理关系图缓存失败: {e}")
+            logger.info("所有群数据已执行每日重置，关系图缓存已清理")
 
     async def _get_group_members(self, event: AiocqhttpMessageEvent) -> List[Dict[str, Any]]:
         """获取群成员列表"""
