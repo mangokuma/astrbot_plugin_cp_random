@@ -558,7 +558,7 @@ class CpRandomPlugin(Star):
                 result = event.make_result()
                 result.chain = [
                     Comp.Plain("群友 CP 关系图："),
-                    Comp.Image(file=f"file:///{image_path}"),
+                    Comp.Image(file=image_path),
                 ]
                 yield result
             else:
@@ -748,7 +748,7 @@ class CpRandomPlugin(Star):
         draw.text((padding + 170, legend_y - 8), "老公关系", fill=(50, 100, 220), font=font)
         
         # 保存图片
-        output_path = os.path.join(self.data_dir, f"graph_{group_id}.png")
+        output_path = os.path.join(os.path.abspath(self.data_dir), f"graph_{group_id}.png")
         img.save(output_path, "PNG")
         return output_path
 
