@@ -204,7 +204,7 @@ class CpRandomPlugin(Star):
 
     # ========== 指令处理 ==========
 
-    @filter.command("随机老公")
+    @filter.command("随机老公", alias=["今日老公"])
     async def random_husband(self, event: AstrMessageEvent):
         '''随机抽取一位群成员作为你的老公'''
         if not isinstance(event, AiocqhttpMessageEvent):
@@ -278,7 +278,7 @@ class CpRandomPlugin(Star):
         ]
         yield result
 
-    @filter.command("随机老婆")
+    @filter.command("随机老婆", alias=["今日老婆"])
     async def random_wife(self, event: AstrMessageEvent):
         '''随机抽取一位群成员作为你的老婆'''
         if not isinstance(event, AiocqhttpMessageEvent):

@@ -2,7 +2,7 @@ name: astrbot_plugin_cp_random
 display_name: 群友CP随机抽取
 author: AI Assistant
 desc: QQ群聊CP随机抽取插件，支持随机老公/老婆、换老公/老婆、关系图生成，支持绑定/非绑定模式
-version: "1.1.0"
+version: "1.1.1"
 repo: "https://github.com/mangokuma/astrbot_plugin_cp_random"
 short_desc: QQ群CP随机抽取，生成关系图
 support_platforms:
